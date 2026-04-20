@@ -460,21 +460,54 @@ router.get("/tiktok/profile", async (req, res) => {
   }
 });
 
-function extractVideoId(input: string): string | undefined {
+/**
+ * Parse a TikTok video URL and return { username, videoId }.
+ * Supports:
+ *   https://www.tiktok.com/@username/video/1234567890
+ *   https://vm.tiktok.com/XXXXX/  (short link — no username available)
+ */
+function parseTikTokVideoUrl(input: string): { username?: string; videoId?: string } {
   const trimmed = input.trim();
-  // already a plain numeric ID
-  if (/^\d+$/.test(trimmed)) return trimmed;
-  // try to extract from URL  e.g. tiktok.com/@user/video/1234567890
-  const match = trimmed.match(/\/video\/(\d+)/);
-  if (match) return match[1];
-  // vm.tiktok.com short links – return URL for the API to resolve
-  return trimmed;
+  // plain numeric video ID
+  if (/^\d{15,20}$/.test(trimmed)) return { videoId: trimmed };
+
+  try {
+    const parsed = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+    // full URL: tiktok.com/@username/video/123456789
+    const fullMatch = parsed.pathname.match(/\/@([^/]+)\/video\/(\d+)/);
+    if (fullMatch) return { username: fullMatch[1], videoId: fullMatch[2] };
+    // just a video ID in path segments
+    const idMatch = parsed.pathname.match(/\/(\d{15,20})/);
+    if (idMatch) return { videoId: idMatch[1] };
+  } catch {
+    // not a valid URL, try regex
+    const m = trimmed.match(/\/@([^/]+)\/video\/(\d+)/);
+    if (m) return { username: m[1], videoId: m[2] };
+  }
+  return {};
+}
+
+/**
+ * Resolve a short TikTok URL (vt.tiktok.com / vm.tiktok.com) to a full URL
+ * by following the redirect without fetching the body.
+ */
+async function resolveShortUrl(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.url || url;
+  } catch {
+    return url;
+  }
 }
 
 router.get("/tiktok/video", async (req, res) => {
-  const url = typeof req.query["url"] === "string" ? req.query["url"].trim() : "";
-  if (!url) {
-    res.status(400).json({ error: "Missing url parameter" });
+  let rawUrl = typeof req.query["url"] === "string" ? req.query["url"].trim() : "";
+  if (!rawUrl) {
+    res.status(400).json({ error: "المعامل url مطلوب" });
     return;
   }
 
@@ -482,83 +515,94 @@ router.get("/tiktok/video", async (req, res) => {
   const host = process.env.TIKTOK_SCRAPER_HOST ?? process.env.RAPIDAPI_HOST ?? DEFAULT_HOST;
 
   if (!key) {
-    res.status(502).json({ error: "TikTok Scraper API key is not configured" });
+    res.status(502).json({ error: "مفتاح API غير مضبوط" });
     return;
   }
 
-  const videoId = extractVideoId(url);
-  const paths = videoId && /^\d+$/.test(videoId)
-    ? [
-        `/video/info?video_id=${encodeURIComponent(videoId)}`,
-        `/video/detail?video_id=${encodeURIComponent(videoId)}`,
-        `/video/info?url=${encodeURIComponent(url)}`,
-      ]
-    : [
-        `/video/info?url=${encodeURIComponent(url)}`,
-        `/video/detail?url=${encodeURIComponent(url)}`,
-      ];
+  // Resolve short links (vt.tiktok.com, vm.tiktok.com)
+  const isShort = /\/(vt|vm)\.tiktok\.com\//i.test(rawUrl) || /^https?:\/\/(vt|vm)\.tiktok\.com/i.test(rawUrl);
+  if (isShort) {
+    rawUrl = await resolveShortUrl(rawUrl);
+  }
+
+  const { username, videoId } = parseTikTokVideoUrl(rawUrl);
+
+  if (!username && !videoId) {
+    res.status(400).json({
+      error: "رابط الفيديو غير صحيح",
+      details: "يرجى استخدام الرابط الكامل: tiktok.com/@اسم_المستخدم/video/رقم_الفيديو",
+    });
+    return;
+  }
 
   try {
-    const raw = await fetchFirstSuccessful(host, paths, key, req.log);
-    const data = getDataRecord(raw);
-    const stats = first(raw, [["data", "stats"], ["stats"], ["data", "statistics"], ["statistics"]]);
-    const statsRecord = isRecord(stats) ? stats : {};
-    const item = first(raw, [["data", "item_list", "0"], ["data"], ["item"]]);
-    const itemRecord = isRecord(item) ? item : data;
+    // Strategy: fetch user posts and find the matching video
+    if (username && videoId) {
+      const encoded = encodeURIComponent(username);
+      let cursor: string | number | undefined;
+      let found: UnknownRecord | undefined;
 
-    const views = asNumber(first(raw, [
-      ["data", "stats", "playCount"],
-      ["data", "statistics", "play_count"],
-      ["stats", "playCount"],
-      ["statistics", "play_count"],
-      ["data", "play_count"],
-      ["play_count"],
-    ])) ?? asNumber(statsRecord["playCount"]) ?? asNumber(statsRecord["play_count"]);
+      // Search up to 5 pages (5 × 35 = 175 posts)
+      for (let page = 0; page < 5 && !found; page++) {
+        const path = withParams(`/user/posts?unique_id=${encoded}`, { count: 35, cursor });
+        const raw = await fetchJson(host, path, key);
+        const data = getDataRecord(raw);
+        const videos = getItemsFromRaw(data, ["videos", "aweme_list", "items", "data"]);
 
-    const likes = asNumber(first(raw, [
-      ["data", "stats", "diggCount"],
-      ["data", "statistics", "digg_count"],
-      ["stats", "diggCount"],
-      ["statistics", "digg_count"],
-      ["data", "digg_count"],
-      ["digg_count"],
-    ])) ?? asNumber(statsRecord["diggCount"]) ?? asNumber(statsRecord["digg_count"]);
+        for (const v of videos) {
+          const numericId = asString(v["video_id"]); // numeric ID, matches URL
+          const awemeId = asString(v["aweme_id"]);   // may be non-numeric like v1504gf...
+          if (
+            numericId === videoId ||
+            awemeId === videoId ||
+            numericId?.endsWith(videoId) ||
+            videoId.endsWith(numericId ?? "") ||
+            awemeId?.endsWith(videoId) ||
+            videoId.endsWith(awemeId ?? "")
+          ) {
+            found = v;
+            break;
+          }
+        }
 
-    const comments = asNumber(first(raw, [
-      ["data", "stats", "commentCount"],
-      ["data", "statistics", "comment_count"],
-      ["stats", "commentCount"],
-      ["statistics", "comment_count"],
-    ])) ?? asNumber(statsRecord["commentCount"]) ?? asNumber(statsRecord["comment_count"]);
+        const hasMore = asBoolean(data["hasMore"]) ?? asBoolean(data["has_more"]) ?? false;
+        const nextCursor = asString(data["cursor"]) ?? asNumber(data["cursor"]);
+        if (!hasMore || nextCursor === undefined || nextCursor === cursor) break;
+        cursor = nextCursor;
+      }
 
-    const shares = asNumber(first(raw, [
-      ["data", "stats", "shareCount"],
-      ["data", "statistics", "share_count"],
-      ["stats", "shareCount"],
-      ["statistics", "share_count"],
-    ])) ?? asNumber(statsRecord["shareCount"]) ?? asNumber(statsRecord["share_count"]);
+      if (found) {
+        res.json({
+          videoId,
+          caption: asString(first(found, [["title"], ["content_desc"], ["desc"], ["caption"]])),
+          author: asString(first(found, [["author", "unique_id"], ["author", "uniqueId"], ["author", "nickname"]])) ?? username,
+          cover: asString(first(found, [["origin_cover"], ["cover"], ["ai_dynamic_cover"]])),
+          views: asNumber(found["play_count"]) ?? null,
+          likes: asNumber(found["digg_count"]) ?? null,
+          comments: asNumber(found["comment_count"]) ?? null,
+          shares: asNumber(found["share_count"]) ?? null,
+          fetchedAt: new Date().toISOString(),
+        });
+        return;
+      }
 
-    const caption = asString(first(itemRecord, [["desc"], ["caption"], ["title"]]));
-    const author = asString(first(itemRecord, [["author", "uniqueId"], ["author", "nickname"], ["authorId"]]));
-    const cover = asString(first(itemRecord, [
-      ["video", "cover"], ["video", "originCover"], ["cover"], ["thumbnail"],
-    ]));
+      // Video not found in posts — might be older; return what we know
+      res.status(404).json({
+        error: "الفيديو غير موجود",
+        details: "لم يتم العثور على الفيديو في آخر 175 منشوراً للحساب. تأكد من صحة الرابط.",
+      });
+      return;
+    }
 
-    res.json({
-      videoId,
-      caption,
-      author,
-      cover,
-      views: views ?? null,
-      likes: likes ?? null,
-      comments: comments ?? null,
-      shares: shares ?? null,
-      fetchedAt: new Date().toISOString(),
+    // Only videoId without username — try to get username from the resolved URL first
+    res.status(400).json({
+      error: "رابط الفيديو ناقص",
+      details: "يرجى استخدام الرابط الكامل الذي يحتوي على اسم الحساب: tiktok.com/@اسم_المستخدم/video/رقم_الفيديو",
     });
   } catch (err) {
     const details = err instanceof Error ? err.message : String(err);
-    req.log.warn({ err, url }, "TikTok video lookup failed");
-    res.status(502).json({ error: "TikTok video lookup failed", details });
+    req.log.warn({ err, rawUrl }, "TikTok video lookup failed");
+    res.status(502).json({ error: "فشل جلب بيانات الفيديو", details });
   }
 });
 

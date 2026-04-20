@@ -518,8 +518,20 @@ export default function Home() {
               )}
 
               {videoError && (
-                <div className="p-5 bg-destructive/5 border border-destructive/20 rounded-xl text-center">
-                  <p className="text-destructive font-medium">{videoErr?.message ?? "حدث خطأ أثناء جلب بيانات الفيديو"}</p>
+                <div className="p-5 bg-destructive/5 border border-destructive/20 rounded-xl text-right space-y-2">
+                  <p className="text-destructive font-semibold">
+                    {(() => {
+                      try {
+                        const msg = videoErr?.message ?? "";
+                        const parsed = JSON.parse(msg.includes("{") ? msg.slice(msg.indexOf("{")) : msg);
+                        return parsed.error ?? "حدث خطأ أثناء جلب بيانات الفيديو";
+                      } catch { return videoErr?.message ?? "حدث خطأ أثناء جلب بيانات الفيديو"; }
+                    })()}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    استخدم الرابط الكامل مثل:<br />
+                    <span className="font-mono text-xs" dir="ltr">tiktok.com/@اسم_الحساب/video/رقم_الفيديو</span>
+                  </p>
                 </div>
               )}
 
