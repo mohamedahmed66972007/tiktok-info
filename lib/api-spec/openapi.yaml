@@ -1,0 +1,204 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: tiktok
+    description: TikTok profile inspection operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /tiktok/profile:
+    get:
+      operationId: getTikTokProfile
+      tags: [tiktok]
+      summary: Lookup TikTok profile
+      description: Returns normalized TikTok profile, privacy, risk, and story analytics when available from the configured official scraper API.
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+          description: TikTok username without @
+      responses:
+        "200":
+          description: Profile lookup result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TikTokProfileResult"
+        "400":
+          description: Invalid username
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Upstream API error or missing configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: string
+      required:
+        - error
+    TikTokMetric:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: 'null'
+        available:
+          type: boolean
+      required:
+        - label
+        - value
+        - available
+    TikTokStory:
+      type: object
+      properties:
+        id:
+          type: string
+        caption:
+          type: string
+        thumbnailUrl:
+          type: string
+        videoUrl:
+          type: string
+        createdAt:
+          type: string
+        views:
+          type: number
+        likes:
+          type: number
+        shares:
+          type: number
+        comments:
+          type: number
+        raw:
+          type: object
+          additionalProperties: true
+      required:
+        - id
+    TikTokProfile:
+      type: object
+      properties:
+        username:
+          type: string
+        displayName:
+          type: string
+        avatarUrl:
+          type: string
+        bio:
+          type: string
+        verified:
+          type: boolean
+        privateAccount:
+          type: boolean
+        region:
+          type: string
+        language:
+          type: string
+        accountLevel:
+          type: string
+        followers:
+          type: number
+        following:
+          type: number
+        likes:
+          type: number
+        videos:
+          type: number
+        friends:
+          type: number
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        contactEmail:
+          type: string
+        contactPhone:
+          type: string
+        profileUrl:
+          type: string
+        raw:
+          type: object
+          additionalProperties: true
+      required:
+        - username
+    TikTokProfileResult:
+      type: object
+      properties:
+        profile:
+          $ref: "#/components/schemas/TikTokProfile"
+        stories:
+          type: array
+          items:
+            $ref: "#/components/schemas/TikTokStory"
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/TikTokMetric"
+        flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/TikTokMetric"
+        source:
+          type: string
+        generatedAt:
+          type: string
+        missingFields:
+          type: array
+          items:
+            type: string
+        rawSummary:
+          type: object
+          additionalProperties: true
+      required:
+        - profile
+        - stories
+        - metrics
+        - flags
+        - source
+        - generatedAt
+        - missingFields
