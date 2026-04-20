@@ -421,7 +421,6 @@ router.get("/tiktok/profile", async (req, res) => {
       { label: "الإعجابات", value: profile.likes ?? null, available: profile.likes !== undefined },
       { label: "الفيديوهات", value: profile.videos ?? null, available: profile.videos !== undefined },
       { label: "الأصدقاء", value: profile.friends ?? null, available: profile.friends !== undefined },
-      { label: "مستوى الحساب", value: profile.accountLevel ?? null, available: profile.accountLevel !== undefined },
     ];
     const flags = [
       { label: "حساب موثق", value: profile.verified ?? null, available: profile.verified !== undefined },
@@ -430,16 +429,11 @@ router.get("/tiktok/profile", async (req, res) => {
         value: profile.privateAccount ?? null,
         available: profile.privateAccount !== undefined,
       },
-      { label: "البريد متاح من المصدر", value: Boolean(profile.contactEmail), available: true },
-      { label: "الهاتف متاح من المصدر", value: Boolean(profile.contactPhone), available: true },
       { label: "بيانات الستوري متاحة", value: stories.length > 0, available: true },
     ];
     const missingFields = [
       ["مشاهدات الستوري", stories.some((story) => story.views !== undefined)],
       ["إعجابات الستوري", stories.some((story) => story.likes !== undefined)],
-      ["البريد", Boolean(profile.contactEmail)],
-      ["الهاتف", Boolean(profile.contactPhone)],
-      ["مستوى الحساب", Boolean(profile.accountLevel)],
     ]
       .filter(([, available]) => !available)
       .map(([label]) => String(label));
@@ -463,6 +457,108 @@ router.get("/tiktok/profile", async (req, res) => {
     const details = err instanceof Error ? err.message : String(err);
     req.log.warn({ err, username }, "TikTok lookup failed");
     res.status(502).json({ error: "TikTok Scraper lookup failed", details });
+  }
+});
+
+function extractVideoId(input: string): string | undefined {
+  const trimmed = input.trim();
+  // already a plain numeric ID
+  if (/^\d+$/.test(trimmed)) return trimmed;
+  // try to extract from URL  e.g. tiktok.com/@user/video/1234567890
+  const match = trimmed.match(/\/video\/(\d+)/);
+  if (match) return match[1];
+  // vm.tiktok.com short links – return URL for the API to resolve
+  return trimmed;
+}
+
+router.get("/tiktok/video", async (req, res) => {
+  const url = typeof req.query["url"] === "string" ? req.query["url"].trim() : "";
+  if (!url) {
+    res.status(400).json({ error: "Missing url parameter" });
+    return;
+  }
+
+  const key = process.env.TIKTOK_SCRAPER_API_KEY ?? process.env.RAPIDAPI_KEY;
+  const host = process.env.TIKTOK_SCRAPER_HOST ?? process.env.RAPIDAPI_HOST ?? DEFAULT_HOST;
+
+  if (!key) {
+    res.status(502).json({ error: "TikTok Scraper API key is not configured" });
+    return;
+  }
+
+  const videoId = extractVideoId(url);
+  const paths = videoId && /^\d+$/.test(videoId)
+    ? [
+        `/video/info?video_id=${encodeURIComponent(videoId)}`,
+        `/video/detail?video_id=${encodeURIComponent(videoId)}`,
+        `/video/info?url=${encodeURIComponent(url)}`,
+      ]
+    : [
+        `/video/info?url=${encodeURIComponent(url)}`,
+        `/video/detail?url=${encodeURIComponent(url)}`,
+      ];
+
+  try {
+    const raw = await fetchFirstSuccessful(host, paths, key, req.log);
+    const data = getDataRecord(raw);
+    const stats = first(raw, [["data", "stats"], ["stats"], ["data", "statistics"], ["statistics"]]);
+    const statsRecord = isRecord(stats) ? stats : {};
+    const item = first(raw, [["data", "item_list", "0"], ["data"], ["item"]]);
+    const itemRecord = isRecord(item) ? item : data;
+
+    const views = asNumber(first(raw, [
+      ["data", "stats", "playCount"],
+      ["data", "statistics", "play_count"],
+      ["stats", "playCount"],
+      ["statistics", "play_count"],
+      ["data", "play_count"],
+      ["play_count"],
+    ])) ?? asNumber(statsRecord["playCount"]) ?? asNumber(statsRecord["play_count"]);
+
+    const likes = asNumber(first(raw, [
+      ["data", "stats", "diggCount"],
+      ["data", "statistics", "digg_count"],
+      ["stats", "diggCount"],
+      ["statistics", "digg_count"],
+      ["data", "digg_count"],
+      ["digg_count"],
+    ])) ?? asNumber(statsRecord["diggCount"]) ?? asNumber(statsRecord["digg_count"]);
+
+    const comments = asNumber(first(raw, [
+      ["data", "stats", "commentCount"],
+      ["data", "statistics", "comment_count"],
+      ["stats", "commentCount"],
+      ["statistics", "comment_count"],
+    ])) ?? asNumber(statsRecord["commentCount"]) ?? asNumber(statsRecord["comment_count"]);
+
+    const shares = asNumber(first(raw, [
+      ["data", "stats", "shareCount"],
+      ["data", "statistics", "share_count"],
+      ["stats", "shareCount"],
+      ["statistics", "share_count"],
+    ])) ?? asNumber(statsRecord["shareCount"]) ?? asNumber(statsRecord["share_count"]);
+
+    const caption = asString(first(itemRecord, [["desc"], ["caption"], ["title"]]));
+    const author = asString(first(itemRecord, [["author", "uniqueId"], ["author", "nickname"], ["authorId"]]));
+    const cover = asString(first(itemRecord, [
+      ["video", "cover"], ["video", "originCover"], ["cover"], ["thumbnail"],
+    ]));
+
+    res.json({
+      videoId,
+      caption,
+      author,
+      cover,
+      views: views ?? null,
+      likes: likes ?? null,
+      comments: comments ?? null,
+      shares: shares ?? null,
+      fetchedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    const details = err instanceof Error ? err.message : String(err);
+    req.log.warn({ err, url }, "TikTok video lookup failed");
+    res.status(502).json({ error: "TikTok video lookup failed", details });
   }
 });
 
