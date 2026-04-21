@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useGetTikTokProfile, getGetTikTokProfileQueryKey } from "@workspace/api-client-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useGetTikTokProfile } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { motion, useSpring, useTransform } from "framer-motion";
 import { useTheme } from "@/hooks/use-theme";
 import {
@@ -16,6 +16,29 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+
+function LogoIcon({ size = 44 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="mtiGrad" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="var(--brand-from)" />
+          <stop offset="100%" stopColor="var(--brand-to)" />
+        </linearGradient>
+        <linearGradient id="mtiGradBar" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgba(255,255,255,1)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0.6)" />
+        </linearGradient>
+      </defs>
+      <rect width="44" height="44" rx="13" fill="url(#mtiGrad)" />
+      <rect x="8"  y="27" width="6" height="9"  rx="3" fill="url(#mtiGradBar)" fillOpacity="0.7" />
+      <rect x="19" y="20" width="6" height="16" rx="3" fill="white" />
+      <rect x="30" y="13" width="6" height="23" rx="3" fill="url(#mtiGradBar)" fillOpacity="0.7" />
+      <path d="M11 26 L22 19 L33 12" stroke="white" strokeWidth="1.8" strokeOpacity="0.45" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="33" cy="11.5" r="2.5" fill="white" fillOpacity="0.95" />
+    </svg>
+  );
+}
 
 function AnimatedNumber({ value }: { value: number | null | undefined }) {
   const spring = useSpring(value ?? 0, { stiffness: 60, damping: 14 });
@@ -57,16 +80,13 @@ export default function Home() {
   const [trackingVideoUrl, setTrackingVideoUrl] = useState<string | null>(null);
   const [showThemePicker, setShowThemePicker] = useState(false);
 
-  const { theme, toggle: toggleDark, color, setColor, activeColor, COLOR_THEMES } = useTheme();
+  const { theme, toggle: toggleDark, color, setColor, COLOR_THEMES } = useTheme();
 
-  const queryClient = useQueryClient();
-
-  const { data, isLoading, isError, error, dataUpdatedAt } = useGetTikTokProfile(
+  const { data, isLoading, isError, error, dataUpdatedAt, refetch: refetchProfile } = useGetTikTokProfile(
     { username: activeUsername || "" },
     {
       query: {
         enabled: !!activeUsername,
-        queryKey: getGetTikTokProfileQueryKey({ username: activeUsername || "" }),
       },
     }
   );
@@ -76,6 +96,7 @@ export default function Home() {
     isLoading: videoLoading,
     isError: videoError,
     error: videoErr,
+    refetch: refetchVideo,
   } = useQuery<VideoStats, Error>({
     queryKey: VIDEO_QUERY_KEY(trackingVideoUrl ?? ""),
     queryFn: () => fetchVideoStats(trackingVideoUrl!),
@@ -92,9 +113,7 @@ export default function Home() {
   };
 
   const handleProfileRefresh = () => {
-    if (activeUsername) {
-      queryClient.invalidateQueries({ queryKey: getGetTikTokProfileQueryKey({ username: activeUsername }) });
-    }
+    void refetchProfile();
   };
 
   const handleVideoTrack = (e: React.FormEvent) => {
@@ -105,9 +124,7 @@ export default function Home() {
   };
 
   const handleVideoRefresh = () => {
-    if (trackingVideoUrl) {
-      queryClient.invalidateQueries({ queryKey: VIDEO_QUERY_KEY(trackingVideoUrl) });
-    }
+    void refetchVideo();
   };
 
   const formatDate = (dateStr: string | undefined) => {
@@ -141,14 +158,7 @@ export default function Home() {
 
           {/* Logo */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="relative w-11 h-11 shrink-0">
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg overflow-hidden" style={brandStyle}>
-                <span className="text-white font-extrabold text-base tracking-tighter leading-none select-none">MO</span>
-              </div>
-              <div className="absolute -bottom-1 -left-1 w-5 h-5 rounded-md flex items-center justify-center bg-foreground shadow-sm">
-                <span className="text-background font-extrabold text-[8px]">TIK</span>
-              </div>
-            </div>
+            <LogoIcon size={44} />
             <div className="hidden sm:block">
               <h1 className="font-extrabold text-xl tracking-tight select-none leading-none" style={brandTextStyle}>
                 MO TIK INFO
