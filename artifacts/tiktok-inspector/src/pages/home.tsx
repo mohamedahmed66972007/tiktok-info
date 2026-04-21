@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
 import { useGetTikTokProfile, getGetTikTokProfileQueryKey } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, useSpring, useTransform } from "framer-motion";
 import { useTheme } from "@/hooks/use-theme";
 import {
   Activity, ShieldAlert, Zap, LayoutGrid, ServerCrash, AlertTriangle,
   AlertCircle, Eye, Heart, MessageCircle, Share2, BarChart3, User,
   Calendar, ExternalLink, ShieldX, CheckCircle, SearchIcon, Moon, Sun,
-  Radio, Link, PlaySquare, RefreshCw, Wifi,
+  Link, RefreshCw, Palette,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,17 +17,12 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-const POLL_INTERVAL_MS = 30_000;
-const VIDEO_POLL_INTERVAL_MS = 10_000;
-
 function AnimatedNumber({ value }: { value: number | null | undefined }) {
   const spring = useSpring(value ?? 0, { stiffness: 60, damping: 14 });
   const display = useTransform(spring, (v) => Math.round(v).toLocaleString("en-US"));
 
   useEffect(() => {
-    if (value !== null && value !== undefined) {
-      spring.set(value);
-    }
+    if (value !== null && value !== undefined) spring.set(value);
   }, [value, spring]);
 
   if (value === null || value === undefined) return <span>—</span>;
@@ -53,13 +48,18 @@ async function fetchVideoStats(url: string): Promise<VideoStats> {
   return json as VideoStats;
 }
 
+const VIDEO_QUERY_KEY = (url: string) => ["tiktok-video", url];
+
 export default function Home() {
   const [searchInput, setSearchInput] = useState("");
   const [activeUsername, setActiveUsername] = useState<string | null>(null);
   const [videoUrlInput, setVideoUrlInput] = useState("");
   const [trackingVideoUrl, setTrackingVideoUrl] = useState<string | null>(null);
+  const [showThemePicker, setShowThemePicker] = useState(false);
 
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { theme, toggle: toggleDark, color, setColor, activeColor, COLOR_THEMES } = useTheme();
+
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error, dataUpdatedAt } = useGetTikTokProfile(
     { username: activeUsername || "" },
@@ -67,7 +67,6 @@ export default function Home() {
       query: {
         enabled: !!activeUsername,
         queryKey: getGetTikTokProfileQueryKey({ username: activeUsername || "" }),
-        refetchInterval: POLL_INTERVAL_MS,
       },
     }
   );
@@ -78,10 +77,10 @@ export default function Home() {
     isError: videoError,
     error: videoErr,
   } = useQuery<VideoStats, Error>({
-    queryKey: ["tiktok-video", trackingVideoUrl],
+    queryKey: VIDEO_QUERY_KEY(trackingVideoUrl ?? ""),
     queryFn: () => fetchVideoStats(trackingVideoUrl!),
     enabled: !!trackingVideoUrl,
-    refetchInterval: VIDEO_POLL_INTERVAL_MS,
+    staleTime: Infinity,
     retry: 1,
   });
 
@@ -92,10 +91,22 @@ export default function Home() {
     }
   };
 
+  const handleProfileRefresh = () => {
+    if (activeUsername) {
+      queryClient.invalidateQueries({ queryKey: getGetTikTokProfileQueryKey({ username: activeUsername }) });
+    }
+  };
+
   const handleVideoTrack = (e: React.FormEvent) => {
     e.preventDefault();
     if (videoUrlInput.trim()) {
       setTrackingVideoUrl(videoUrlInput.trim());
+    }
+  };
+
+  const handleVideoRefresh = () => {
+    if (trackingVideoUrl) {
+      queryClient.invalidateQueries({ queryKey: VIDEO_QUERY_KEY(trackingVideoUrl) });
     }
   };
 
@@ -108,23 +119,41 @@ export default function Home() {
 
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString("ar-EG");
 
+  const brandStyle = {
+    background: `linear-gradient(135deg, var(--brand-from), var(--brand-to))`,
+  };
+
+  const brandTextStyle = {
+    backgroundImage: `linear-gradient(to right, var(--brand-from), var(--brand-to))`,
+    WebkitBackgroundClip: "text" as const,
+    WebkitTextFillColor: "transparent" as const,
+    backgroundClip: "text" as const,
+  };
+
+  const brandBorderStyle = `1px solid color-mix(in srgb, var(--brand-from) 30%, transparent)`;
+
   return (
     <div className="min-h-[100dvh] bg-background text-foreground flex flex-col font-sans" dir="rtl">
 
-      {/* ── Header ───────────────────────────────────────────────── */}
+      {/* ── Header ── */}
       <header className="border-b border-border/40 bg-card/80 backdrop-blur-xl sticky top-0 z-40 shadow-sm">
         <div className="container mx-auto px-4 h-20 flex items-center justify-between gap-4">
 
           {/* Logo */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#fe2c55] to-[#25f4ee] flex items-center justify-center shadow-md">
-              <PlaySquare className="w-6 h-6 text-white" />
+            <div className="relative w-11 h-11 shrink-0">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center shadow-lg overflow-hidden" style={brandStyle}>
+                <span className="text-white font-extrabold text-base tracking-tighter leading-none select-none">MO</span>
+              </div>
+              <div className="absolute -bottom-1 -left-1 w-5 h-5 rounded-md flex items-center justify-center bg-foreground shadow-sm">
+                <span className="text-background font-extrabold text-[8px]">TIK</span>
+              </div>
             </div>
             <div className="hidden sm:block">
-              <h1 className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-[#fe2c55] to-[#25f4ee] bg-clip-text text-transparent select-none">
-                تيك إنسبكتور
+              <h1 className="font-extrabold text-xl tracking-tight select-none leading-none" style={brandTextStyle}>
+                MO TIK INFO
               </h1>
-              <p className="text-xs text-muted-foreground">تحليل حسابات تيك توك</p>
+              <p className="text-xs text-muted-foreground mt-0.5">تحليل حسابات تيك توك</p>
             </div>
           </div>
 
@@ -146,7 +175,8 @@ export default function Home() {
                 <Button
                   type="submit"
                   disabled={isLoading}
-                  className="h-10 px-5 font-bold rounded-full bg-gradient-to-r from-[#fe2c55] to-[#ff6b81] text-white border-0 hover:opacity-90"
+                  className="h-10 px-5 font-bold rounded-full text-white border-0 hover:opacity-90"
+                  style={brandStyle}
                 >
                   {isLoading ? "..." : "بحث"}
                 </Button>
@@ -155,37 +185,66 @@ export default function Home() {
           </form>
 
           {/* Controls */}
-          <div className="flex items-center gap-2 shrink-0">
-            {activeUsername && data && (
-              <Badge variant="outline" className="hidden md:flex items-center gap-2 px-3 py-1.5 text-xs">
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                يتحدث تلقائياً
-              </Badge>
-            )}
+          <div className="flex items-center gap-1 shrink-0 relative">
+            {/* Theme picker toggle */}
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-full relative"
-              onClick={toggleTheme}
+              className="rounded-full"
+              onClick={() => setShowThemePicker((v) => !v)}
+              aria-label="اختيار الثيم"
+            >
+              <Palette className="h-5 w-5" />
+            </Button>
+
+            {/* Dark mode toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full"
+              onClick={toggleDark}
               aria-label="تبديل الوضع الليلي"
             >
-              {theme === "dark" ? (
-                <Sun className="h-5 w-5 transition-all" />
-              ) : (
-                <Moon className="h-5 w-5 transition-all" />
-              )}
+              {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
+
+            {/* Color theme picker dropdown */}
+            {showThemePicker && (
+              <div className="absolute top-full left-0 mt-2 p-3 bg-card border border-border/60 rounded-2xl shadow-xl z-50 min-w-[220px]">
+                <p className="text-xs text-muted-foreground font-medium mb-2 px-1">اختر لون الثيم</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {COLOR_THEMES.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setColor(t.id); setShowThemePicker(false); }}
+                      className={`flex flex-col items-center gap-1.5 p-2 rounded-xl transition-all hover:bg-muted/60 ${color === t.id ? "bg-muted ring-2 ring-primary" : ""}`}
+                    >
+                      <span
+                        className="w-7 h-7 rounded-full shadow-sm"
+                        style={{ background: `linear-gradient(135deg, ${t.from}, ${t.to})` }}
+                      />
+                      <span className="text-xs font-medium text-muted-foreground">{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </header>
+
+      {/* Click outside to close theme picker */}
+      {showThemePicker && (
+        <div className="fixed inset-0 z-30" onClick={() => setShowThemePicker(false)} />
+      )}
 
       <main className="flex-1 container mx-auto px-4 py-10 max-w-7xl space-y-8">
 
         {/* Empty state */}
         {!activeUsername && !isLoading && (
           <div className="h-[55vh] flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-500">
-            <div className="w-24 h-24 rounded-full flex items-center justify-center mb-8 bg-gradient-to-br from-[#fe2c55]/10 to-[#25f4ee]/10 border border-[#fe2c55]/20">
-              <BarChart3 className="w-12 h-12 text-[#fe2c55]" strokeWidth={1.5} />
+            <div className="w-24 h-24 rounded-full flex items-center justify-center mb-8" style={{ background: "color-mix(in srgb, var(--brand-from) 10%, transparent)", border: brandBorderStyle }}>
+              <BarChart3 className="w-12 h-12" style={{ color: "var(--brand-from)" }} strokeWidth={1.5} />
             </div>
             <h2 className="text-3xl font-bold mb-4">منصة تحليل حسابات تيك توك</h2>
             <p className="text-lg text-muted-foreground max-w-2xl leading-relaxed">
@@ -207,7 +266,6 @@ export default function Home() {
                   </div>
                 </CardContent>
               </Card>
-              <Skeleton className="h-48 w-full rounded-2xl" />
             </div>
             <div className="lg:col-span-8 space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -233,7 +291,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── Profile data ─────────────────────────────────────────── */}
+        {/* ── Profile data ── */}
         {data && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 fade-in duration-500">
 
@@ -242,7 +300,7 @@ export default function Home() {
 
               {/* Profile card */}
               <Card className="border-border/40 shadow-md overflow-hidden bg-card rounded-2xl">
-                <div className="h-28 bg-gradient-to-br from-[#fe2c55]/20 to-[#25f4ee]/20 relative">
+                <div className="h-28 relative" style={brandStyle}>
                   <div className="absolute inset-0 bg-gradient-to-t from-background/40 to-transparent" />
                 </div>
                 <CardContent className="p-8 pt-0 relative text-center">
@@ -288,29 +346,6 @@ export default function Home() {
                 </CardContent>
               </Card>
 
-              {/* Privacy flags */}
-              {data.flags && data.flags.length > 0 && (
-                <Card className="border-orange-500/20 bg-orange-50/50 dark:bg-orange-950/20 shadow-sm rounded-2xl">
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-base flex items-center gap-2 text-orange-600 font-bold">
-                      <ShieldX className="w-5 h-5" /> مؤشرات الخصوصية
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-4">
-                      {data.flags.map((flag, i) => (
-                        <li key={i} className="flex justify-between items-center text-sm border-b border-orange-500/10 pb-3 last:border-0 last:pb-0">
-                          <span className="text-muted-foreground font-medium">{flag.label}</span>
-                          <span className={`font-mono font-bold px-2 py-1 rounded text-xs ${flag.value === true ? "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400" : "bg-green-50 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
-                            {typeof flag.value === "boolean" ? (flag.value ? "نعم" : "لا") : String(flag.value)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                </Card>
-              )}
-
               {/* Missing fields */}
               {data.missingFields && data.missingFields.length > 0 && (
                 <Card className="border-border/40 shadow-sm rounded-2xl bg-card">
@@ -329,17 +364,26 @@ export default function Home() {
                 </Card>
               )}
 
-              {/* Last updated indicator */}
-              <div className="flex items-center gap-2 text-xs text-muted-foreground/60 font-mono px-1">
-                <RefreshCw className="w-3 h-3" />
-                آخر تحديث: {formatTime(new Date(dataUpdatedAt).toISOString())}
+              {/* Last updated + refresh */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground/70 font-mono px-1">
+                <span>آخر تحديث: {formatTime(new Date(dataUpdatedAt).toISOString())}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 gap-1.5 text-xs rounded-lg"
+                  onClick={handleProfileRefresh}
+                  disabled={isLoading}
+                >
+                  <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
+                  تحديث
+                </Button>
               </div>
             </div>
 
             {/* Right content */}
             <div className="lg:col-span-8 space-y-6">
 
-              {/* Primary stats — animated numbers */}
+              {/* 1. Primary stats — animated numbers */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {([
                   { label: "المتابعون", value: data.profile.followers, icon: User, color: "text-blue-500", bg: "bg-blue-500/10" },
@@ -361,32 +405,30 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* Detailed metrics */}
-              {data.metrics && data.metrics.length > 0 && (
-                <Card className="border-border/40 shadow-sm rounded-2xl">
-                  <CardHeader className="pb-4 border-b border-border/40">
-                    <CardTitle className="text-lg flex items-center gap-2 font-bold">
-                      <Activity className="w-5 h-5 text-primary" /> المقاييس التفصيلية
+              {/* 2. Privacy flags */}
+              {data.flags && data.flags.length > 0 && (
+                <Card className="border-orange-500/20 bg-orange-50/50 dark:bg-orange-950/20 shadow-sm rounded-2xl">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-base flex items-center gap-2 text-orange-600 font-bold">
+                      <ShieldX className="w-5 h-5" /> مؤشرات الخصوصية والمخاطر
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="grid grid-cols-1 md:grid-cols-2">
-                      {data.metrics.map((metric, i) => (
-                        <div key={i} className={`p-5 flex justify-between items-center border-border/40 ${i % 2 === 0 ? "md:border-l" : ""} border-b last:border-b-0`}>
-                          <span className="text-sm font-medium text-muted-foreground">{metric.label}</span>
-                          <span className={`font-mono font-bold text-lg ${!metric.available ? "text-muted-foreground/40" : ""}`}>
-                            {metric.available
-                              ? <AnimatedNumber value={typeof metric.value === "number" ? metric.value : null} />
-                              : "—"}
+                  <CardContent>
+                    <ul className="space-y-4">
+                      {data.flags.map((flag, i) => (
+                        <li key={i} className="flex justify-between items-center text-sm border-b border-orange-500/10 pb-3 last:border-0 last:pb-0">
+                          <span className="text-muted-foreground font-medium">{flag.label}</span>
+                          <span className={`font-mono font-bold px-2 py-1 rounded text-xs ${flag.value === true ? "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400" : "bg-green-50 dark:bg-green-900/40 text-green-700 dark:text-green-400"}`}>
+                            {typeof flag.value === "boolean" ? (flag.value ? "نعم" : "لا") : String(flag.value)}
                           </span>
-                        </div>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </CardContent>
                 </Card>
               )}
 
-              {/* Stories section */}
+              {/* 3. Stories section */}
               <Card className="border-border/40 shadow-sm rounded-2xl overflow-hidden flex flex-col h-[700px]">
                 <CardHeader className="pb-5 border-b border-border/40 bg-card shrink-0">
                   <div className="flex justify-between items-center">
@@ -467,16 +509,16 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── Live Video Tracker ─────────────────────────────────── */}
+        {/* ── Video Stats Tracker ── */}
         <div className="max-w-4xl mx-auto w-full">
           <Card className="border-border/40 rounded-2xl shadow-sm overflow-hidden">
-            <CardHeader className="pb-4 border-b border-border/40 bg-gradient-to-r from-[#fe2c55]/5 to-[#25f4ee]/5">
+            <CardHeader className="pb-4 border-b border-border/40" style={{ background: "linear-gradient(to right, color-mix(in srgb, var(--brand-from) 8%, transparent), color-mix(in srgb, var(--brand-to) 8%, transparent))" }}>
               <CardTitle className="text-lg flex items-center gap-2 font-bold">
-                <Radio className="w-5 h-5 text-[#fe2c55] animate-pulse" />
-                بث مباشر لإحصائيات فيديو
+                <Activity className="w-5 h-5" style={{ color: "var(--brand-from)" }} />
+                متتبع إحصائيات الفيديو
               </CardTitle>
               <CardDescription>
-                الصق رابط أي فيديو تيك توك لمتابعة مشاهداته وإعجاباته بشكل حي كل 10 ثوانٍ.
+                الصق رابط أي فيديو تيك توك لجلب مشاهداته وإعجاباته. اضغط تحديث متى أردت رؤية أحدث الأرقام.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-6 space-y-5">
@@ -495,19 +537,32 @@ export default function Home() {
                 <Button
                   type="submit"
                   disabled={videoLoading}
-                  className="h-12 px-6 rounded-xl font-bold bg-gradient-to-r from-[#fe2c55] to-[#ff6b81] text-white border-0 hover:opacity-90 shrink-0"
+                  className="h-12 px-6 rounded-xl font-bold text-white border-0 hover:opacity-90 shrink-0"
+                  style={brandStyle}
                 >
-                  {videoLoading ? "..." : "تتبع"}
+                  {videoLoading ? "..." : "جلب"}
                 </Button>
                 {trackingVideoUrl && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-12 px-4 rounded-xl shrink-0"
-                    onClick={() => { setTrackingVideoUrl(null); setVideoUrlInput(""); }}
-                  >
-                    إيقاف
-                  </Button>
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-12 px-4 rounded-xl shrink-0 gap-2"
+                      onClick={handleVideoRefresh}
+                      disabled={videoLoading}
+                    >
+                      <RefreshCw className={`w-4 h-4 ${videoLoading ? "animate-spin" : ""}`} />
+                      تحديث
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-12 px-4 rounded-xl shrink-0"
+                      onClick={() => { setTrackingVideoUrl(null); setVideoUrlInput(""); }}
+                    >
+                      إيقاف
+                    </Button>
+                  </>
                 )}
               </form>
 
@@ -520,13 +575,7 @@ export default function Home() {
               {videoError && (
                 <div className="p-5 bg-destructive/5 border border-destructive/20 rounded-xl text-right space-y-2">
                   <p className="text-destructive font-semibold">
-                    {(() => {
-                      try {
-                        const msg = videoErr?.message ?? "";
-                        const parsed = JSON.parse(msg.includes("{") ? msg.slice(msg.indexOf("{")) : msg);
-                        return parsed.error ?? "حدث خطأ أثناء جلب بيانات الفيديو";
-                      } catch { return videoErr?.message ?? "حدث خطأ أثناء جلب بيانات الفيديو"; }
-                    })()}
+                    {videoErr?.message ?? "حدث خطأ أثناء جلب بيانات الفيديو"}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     استخدم الرابط الكامل مثل:<br />
@@ -549,10 +598,6 @@ export default function Home() {
                         {videoData.caption && (
                           <p className="text-sm font-medium leading-relaxed line-clamp-2">{videoData.caption}</p>
                         )}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-mono shrink-0">
-                        <Wifi className="w-3.5 h-3.5 animate-pulse" />
-                        بث مباشر
                       </div>
                     </div>
                   )}
@@ -579,7 +624,7 @@ export default function Home() {
                   </div>
 
                   <p className="text-xs text-muted-foreground/60 font-mono text-left" dir="ltr">
-                    آخر تحديث: {formatTime(videoData.fetchedAt)} · يتحدث كل 10 ثوانٍ
+                    آخر تحديث: {formatTime(videoData.fetchedAt)}
                   </p>
                 </div>
               )}

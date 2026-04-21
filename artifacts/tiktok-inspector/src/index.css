@@ -40,9 +40,6 @@
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-destructive-border: var(--destructive-border);
 
-  --color-tiktok-cyan: #25F4EE;
-  --color-tiktok-pink: #FE2C55;
-
   --font-sans: 'Tajawal', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
@@ -52,72 +49,126 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ── Base light theme ──────────────────────────────────────── */
 :root {
   --background: 210 40% 98%;
   --foreground: 222 47% 11%;
-  
+
   --card: 0 0% 100%;
   --card-foreground: 222 47% 11%;
   --card-border: 214 32% 91%;
-  
+
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
   --popover-border: 214 32% 91%;
-  
-  --primary: 221 83% 53%;
-  --primary-foreground: 210 40% 98%;
-  
+
+  --primary: 346 100% 59%;
+  --primary-foreground: 0 0% 100%;
+
   --secondary: 210 40% 96%;
   --secondary-foreground: 222 47% 11%;
-  
+
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
-  
+
   --accent: 210 40% 96%;
   --accent-foreground: 222 47% 11%;
-  
+
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
-  
+
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 221 83% 53%;
-  
+  --ring: 346 100% 59%;
+
   --radius: 0.75rem;
+
+  /* Brand gradient defaults (TikTok) */
+  --brand-from: #fe2c55;
+  --brand-to: #25f4ee;
 }
 
+/* ── Dark mode ────────────────────────────────────────────── */
 .dark {
   --background: 222 47% 11%;
   --foreground: 210 40% 98%;
-  
+
   --card: 222 47% 11%;
   --card-foreground: 210 40% 98%;
   --card-border: 217 32% 17%;
-  
+
   --popover: 222 47% 11%;
   --popover-foreground: 210 40% 98%;
   --popover-border: 217 32% 17%;
-  
-  --primary: 217 91% 60%;
-  --primary-foreground: 222 47% 11%;
-  
+
+  --primary: 346 100% 65%;
+  --primary-foreground: 0 0% 100%;
+
   --secondary: 217 32% 17%;
   --secondary-foreground: 210 40% 98%;
-  
+
   --muted: 217 32% 17%;
-  --muted-foreground: 215 20.2% 65.1%;
-  
+  --muted-foreground: 215 20% 65%;
+
   --accent: 217 32% 17%;
   --accent-foreground: 210 40% 98%;
-  
-  --destructive: 0 62.8% 30.6%;
+
+  --destructive: 0 62.8% 50%;
   --destructive-foreground: 210 40% 98%;
-  
+
   --border: 217 32% 17%;
   --input: 217 32% 17%;
-  --ring: 212 96% 48%;
+  --ring: 346 100% 65%;
 }
 
+/* ── Color themes ─────────────────────────────────────────── */
+
+/* Red */
+[data-color="red"] {
+  --primary: 0 84% 60%;
+  --ring: 0 84% 60%;
+  --brand-from: #ef4444;
+  --brand-to: #f97316;
+}
+.dark[data-color="red"] { --primary: 0 84% 65%; --ring: 0 84% 65%; }
+
+/* Green */
+[data-color="green"] {
+  --primary: 160 84% 39%;
+  --ring: 160 84% 39%;
+  --brand-from: #10b981;
+  --brand-to: #06b6d4;
+}
+.dark[data-color="green"] { --primary: 160 84% 50%; --ring: 160 84% 50%; }
+
+/* Blue */
+[data-color="blue"] {
+  --primary: 217 91% 60%;
+  --ring: 217 91% 60%;
+  --brand-from: #3b82f6;
+  --brand-to: #818cf8;
+}
+.dark[data-color="blue"] { --primary: 217 91% 65%; --ring: 217 91% 65%; }
+
+/* Purple */
+[data-color="purple"] {
+  --primary: 263 70% 58%;
+  --ring: 263 70% 58%;
+  --brand-from: #8b5cf6;
+  --brand-to: #ec4899;
+}
+.dark[data-color="purple"] { --primary: 263 70% 65%; --ring: 263 70% 65%; }
+
+/* Orange */
+[data-color="orange"] {
+  --primary: 25 95% 53%;
+  --ring: 25 95% 53%;
+  --brand-from: #f97316;
+  --brand-to: #eab308;
+}
+.dark[data-color="orange"] { --primary: 25 95% 60%; --ring: 25 95% 60%; }
+
+/* ── Base layer ────────────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border;
